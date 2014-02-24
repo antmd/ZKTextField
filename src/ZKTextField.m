@@ -62,6 +62,10 @@
 - (void)_instantiate;
 @end
 
+static NSFont* DefaultFont = nil;
+static const CGFloat MinimumFontSize = 6.0;
+static const CGFloat MaximumFontSize = 24.0;
+
 #pragma mark - ZKTextField
 #pragma mark -
 
@@ -100,6 +104,12 @@
 
 #pragma mark - Lifecycle
 
++(void)initialize
+{
+    if (self == ZKTextField.class) {
+        DefaultFont = [ NSFont systemFontOfSize:13.0 ];
+    }
+}
 - (id)init 
 {
 	if ((self = [super init])) {
@@ -111,8 +121,8 @@
 - (id)initWithFrame:(NSRect)frame
 {
 	if (([super initWithFrame:frame])) {		
-		self.frame             = frame; // Recalculate frame
 		[self _instantiate];
+		self.frame             = frame; // Recalculate frame
 	}
 
 	return self;
@@ -134,9 +144,11 @@
 		self.target                      = [dec decodeObjectForKey:@"zktarget"];
 		self.action                      = NSSelectorFromString([dec decodeObjectForKey:@"zkaction"]);
 		self.continuous                  = [dec decodeBoolForKey:@"zkcontinuous"];
-		self.placeholderStringAttributes = [dec decodeObjectForKey:@"zkplaceholderstringattributes"];
-		self.stringAttributes            = [dec decodeObjectForKey:@"zkstringattributes"];
+		self.placeholderStringAttributes = [[dec decodeObjectForKey:@"zkplaceholderstringattributes"] mutableCopy];
+		self.stringAttributes            = [[dec decodeObjectForKey:@"zkstringattributes"] mutableCopy];
 		self.selectedStringAttributes    = [dec decodeObjectForKey:@"zkselectedstringattributes"];
+        self.style                       = [dec decodeIntegerForKey:@"zkStyle"];
+        self.borderWidth                 = [dec decodeFloatForKey:@"zkBorderWidth"];
 	}
 	return self;
 }
@@ -166,23 +178,23 @@
 	self.secure            = NO;
 	self.shouldClipContent = YES;
 	self.shouldShowFocus   = YES;
-	self.string            = @"";
-	self.placeholderString = @"Username";
+	self.placeholderString = nil;
 	self.editable          = YES;
 	self.selectable        = YES;
 	NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle defaultParagraphStyle] mutableCopy] autorelease];
 	style.lineBreakMode = NSLineBreakByTruncatingTail;
-	self.stringAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
+	self.stringAttributes = [NSMutableDictionary dictionaryWithObjectsAndKeys:
 							 [NSColor controlTextColor], NSForegroundColorAttributeName,
-							 [NSFont systemFontOfSize:13.0f], NSFontAttributeName, 
+							 DefaultFont, NSFontAttributeName,
 							 style, NSParagraphStyleAttributeName, nil];
 
 
 
-	self.placeholderStringAttributes = [NSDictionary dictionaryWithObjectsAndKeys:
-										[NSColor grayColor], NSForegroundColorAttributeName,
-										[NSFont systemFontOfSize:13.0f], NSFontAttributeName, 
-										style, NSParagraphStyleAttributeName, nil];
+	self.placeholderStringAttributes = [@{NSForegroundColorAttributeName: [NSColor grayColor],
+										NSFontAttributeName: DefaultFont,
+										NSParagraphStyleAttributeName: style} mutableCopy];
+	self.string            = @"";
+    self.borderWidth = 1.0;
 }
 
 - (void)encodeWithCoder:(NSCoder *)coder
@@ -201,6 +213,8 @@
 	[coder encodeObject:self.placeholderStringAttributes forKey:@"zkplaceholderstringattributes"];
 	[coder encodeObject:self.stringAttributes forKey:@"zkstringattributes"];
 	[coder encodeObject:self.selectedStringAttributes forKey:@"zkselectedStringAttributes"];
+	[coder encodeInteger:self.style forKey:@"zkStyle"];
+	[coder encodeFloat:self.borderWidth forKey:@"zkBorderWidth"];
 
 	if ([self.target conformsToProtocol:@protocol(NSCoding)]) {
 		[coder encodeObject:NSStringFromSelector(self.action) forKey:@"zkaction"];
@@ -295,7 +309,7 @@
 {
 	// You need a line width double of what your inner stroke needs to be while clipping
 	[[NSColor grayColor] setStroke];
-	[self._currentClippingPath setLineWidth:2.0];
+	[self._currentClippingPath setLineWidth:self.borderWidth ];
 	[self._currentClippingPath stroke];
 }
 
@@ -338,35 +352,43 @@
 	return _attributedString;
 }
 
-- (void)setAttributedString:(NSAttributedString *)attributedString
+-(CGFloat)_lineHeightAndOffset:(CGFloat*)offset
 {
-	[self willChangeValueForKey:@"string"];
-	[self willChangeValueForKey:@"attributedString"];
-
-	if (_attributedString)
-		[_attributedString release];
-	_attributedString = [attributedString copy];
-
-	[self didChangeValueForKey:@"attributedString"];
-	[self didChangeValueForKey:@"string"];
-
-	NSAttributedString *heightStr = self.attributedString;
-	if (!self.attributedString || self.attributedString.length == 0)
-		heightStr = [[[NSAttributedString alloc] initWithString:@"ZGyyPh" attributes:self.stringAttributes] autorelease];
+    NSAttributedString* heightStr = [[[NSAttributedString alloc] initWithString:@"ZGyyPh" attributes:self.stringAttributes] autorelease];
 
 	CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)heightStr);
 	CGFloat ascent, descent, leading;
 	CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
 
 	CTFramesetterRef frame = CTFramesetterCreateWithAttributedString((CFAttributedStringRef)heightStr);
-	CGSize size = CTFramesetterSuggestFrameSizeWithConstraints(frame, CFRangeMake(0, self.attributedString.length),
+	CGSize size = CTFramesetterSuggestFrameSizeWithConstraints(frame, CFRangeMake(0, heightStr.length),
 															   NULL, CGSizeMake(CGFLOAT_MAX, CGFLOAT_MAX), NULL);
-	self._lineHeight = size.height;
-	self._offset     = round(descent + leading);
+    if (offset != nil) {
+        *offset     = round(descent + leading);
+    }
 
 	CFRelease(frame);
 	CFRelease(line);
+	return size.height;
+}
 
+- (void)setAttributedString:(NSAttributedString *)inAttrStr
+{
+	[self willChangeValueForKey:@"string"];
+	[self willChangeValueForKey:@"attributedString"];
+
+	[self didChangeValueForKey:@"attributedString"];
+	[self didChangeValueForKey:@"string"];
+
+    
+    NSMutableAttributedString* attributedString = [ inAttrStr mutableCopy ];
+    [ self _adjustAttributedStringForBounds:attributedString ];
+    
+	if (_attributedString)
+		[_attributedString release];
+	_attributedString = [attributedString copy];
+
+    self._lineHeight = [ self _lineHeightAndOffset:&_offset ];
 
 	// Generate a secure string
 	NSString *bullets = [@"" stringByPaddingToLength:self.attributedString.length 
@@ -383,10 +405,24 @@
 	return self.attributedPlaceholderString.string;
 }
 
+-(void)setAttributedPlaceholderString:(NSAttributedString *)inAttrStr
+{
+    NSMutableAttributedString* attributedString = [ inAttrStr mutableCopy ];
+    if (inAttrStr != nil) {
+        [ self _adjustAttributedStringForBounds:attributedString ];
+    }
+    _attributedPlaceholderString = attributedString;
+}
+
 - (void)setPlaceholderString:(NSString *)placeholderString
 {
 	[self willChangeValueForKey:@"placeholderString"];
-	[self setAttributedPlaceholderString:[[[NSAttributedString alloc] initWithString:placeholderString attributes:self.placeholderStringAttributes] autorelease]];
+    if (placeholderString) {
+        [self setAttributedPlaceholderString:[[[NSAttributedString alloc] initWithString:placeholderString attributes:self.placeholderStringAttributes] autorelease]];
+    }
+    else {
+        self.attributedPlaceholderString=nil;
+    }
 	[self didChangeValueForKey:@"placeholderString"];
 }
 
@@ -472,10 +508,12 @@
 	fieldEditor.string      = str ? str : @"";
 
 	NSRect fieldFrame;
-	NSPoint fieldOrigin    = [self textOffsetForHeight:self._lineHeight];
+    CGFloat lineHeight = [ self _lineHeightAndOffset:nil ];
+	NSPoint fieldOrigin    = [self textOffsetForHeight:lineHeight];
 	fieldFrame.origin      = fieldOrigin;
-	fieldFrame.size.height = self._lineHeight;
+	fieldFrame.size.height = lineHeight;
 	fieldFrame.size.width  = [self textWidth];
+    NSLog(@"FieldFrame = %@, lineHeight = %f",NSStringFromSize(fieldFrame.size),lineHeight);
 
 	NSSize layoutSize   = fieldEditor.maxSize;
 
@@ -537,22 +575,86 @@
 	[self setNeedsDisplay:YES];
 }
 
+-(void)_adjustAttributedStringForBounds:(NSMutableAttributedString*)attributedString
+{
+    __block NSFont* initialFont = self.stringAttributes[NSFontAttributeName] ?: DefaultFont;
+    [attributedString enumerateAttributesInRange:NSMakeRange(0,attributedString.length)
+                                         options:0
+                                      usingBlock:^(NSDictionary *attrs, NSRange range, BOOL *stop) {
+                                          if (attrs[NSFontAttributeName]) {
+                                              initialFont = attrs[NSFontAttributeName];
+                                              *stop = YES;
+                                          }
+                                      }];
+    NSFont* font = [ self _adjustFontForBounds:initialFont ];
+    
+    [ attributedString removeAttribute:NSFontAttributeName range:NSMakeRange(0, attributedString.length)];
+    [ attributedString addAttribute:NSFontAttributeName value:font range:NSMakeRange(0, attributedString.length)];
+}
+
+-(NSFont*)_adjustFontForBounds:(NSFont*)initialFont
+{
+    
+    NSMutableAttributedString *attrString
+    = [[[NSMutableAttributedString alloc] initWithString:@"Tojjery" attributes:@{NSFontAttributeName:(initialFont?:DefaultFont)}] autorelease];
+    
+    NSRange fullRange = NSMakeRange(0,attrString.length);
+    CGFloat displayHeight = [ self _maximumTextHeight ];
+
+    // Try and fingd a size that fits without iterating too many times.
+    // We start going 50 pixels at a time, then 10, then 1
+    int offsets[] = { 10, 5, 1 };
+    int size = MinimumFontSize-offsets[0];  // start at 24 (-26 + 50)
+    NSFont* font = initialFont;
+    for (size_t i = 0; i < sizeof(offsets) / sizeof(int); ++i) {
+        for(size = size + offsets[i]; size >= MinimumFontSize && size < MaximumFontSize; size += offsets[i]) {
+            font = [NSFontManager.sharedFontManager convertFont:initialFont toSize:size];
+            [attrString addAttribute:NSFontAttributeName
+                               value:font
+                               range:fullRange];
+            NSSize textSize = [attrString size];
+            if ( textSize.height > displayHeight) {
+                size = size - offsets[i];
+                break;
+            }
+        }
+    }
+
+    // Bounds check our values
+    if (size > MaximumFontSize) {
+        size = MaximumFontSize;
+    } else if (size < MinimumFontSize) {
+        size = MinimumFontSize;
+    }
+    return font;
+}
 #pragma mark - Layout
+
+-(CGFloat)_maximumTextHeight
+{
+    return self.bounds.size.height - 2.0 * self.borderWidth - MAX(2.0,self.bounds.size.height/4.0) ;
+}
 
 - (NSPoint)textOffsetForHeight:(CGFloat)textHeight;
 {
 	// Default text rectangle
-	return NSMakePoint(4.0, round((self.bounds.size.height - textHeight) / 2));
+	return NSMakePoint([ self _radius], round((self.bounds.size.height - textHeight) / 2));
 }
 
 - (CGFloat)textWidth
 {
-	return self.bounds.size.width - 8.0;
+	return self.bounds.size.width - [ self _radius ] * 2.0;
 }
 
 - (NSBezierPath *)clippingPath
 {
-	return [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:4.0 yRadius:4.0];
+    CGFloat radius = [ self _radius];
+	return [NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:radius yRadius:radius];
+}
+
+-(CGFloat)_radius
+{
+    return (self.style == ZKTextFieldTokenStyle) ? self.bounds.size.height/2.0 : 4.0;
 }
 
 - (void)setFrame:(NSRect)frame
@@ -562,8 +664,8 @@
 	CGFloat maxH = self.maximumHeight;
 	CGFloat maxW = self.maximumWidth;
 
-	NSAssert(maxH >= minH || maxH <= 0, @"Maximum height of ZKTextField must be greater than the minimum!");
-	NSAssert(maxW >= minW || maxW <= 0, @"Maximum width of ZKTextField must be greater than the minimum!");
+	//NSAssert(maxH >= minH || maxH <= 0, @"Maximum height of ZKTextField must be greater than the minimum!");
+	//NSAssert(maxW >= minW || maxW <= 0, @"Maximum width of ZKTextField must be greater than the minimum!");
 
 	CGFloat originalWidth  = frame.size.width;
 	CGFloat originalHeight = frame.size.height;
@@ -590,6 +692,14 @@
 	frame.origin.y += round(deltaY / 2);
 
 	[super setFrame:frame];
+    
+    [ self willChangeValueForKey:@"attributedString"];
+    [ self willChangeValueForKey:@"attributedPlaceholderString"];
+    NSFont* newFont = [self _adjustFontForBounds:(self.stringAttributes[NSFontAttributeName]?:DefaultFont) ];
+    self.stringAttributes[NSFontAttributeName] = newFont;
+    self.placeholderStringAttributes[NSFontAttributeName] = newFont;
+    [ self didChangeValueForKey:@"attributedString"];
+    [ self didChangeValueForKey:@"attributedPlaceholderString"];
 
 	if (self._currentClipView) { // Built in autoresizing sucks so much.
 		[self._currentClipView setFrameSize:NSMakeSize(self.textWidth, self._currentClipView.frame.size.height)];
@@ -598,7 +708,7 @@
 
 - (CGFloat)minimumHeight
 {
-	return 24.0;
+	return 12.0;
 }
 
 - (CGFloat)minimumWidth

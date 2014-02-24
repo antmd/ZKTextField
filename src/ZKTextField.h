@@ -25,6 +25,11 @@
 
 #import <Cocoa/Cocoa.h>
 
+typedef NS_ENUM(NSUInteger,ZKTextFieldStyle) {
+    ZKTextFieldNormalStyle
+    , ZKTextFieldTokenStyle
+};
+
 @interface ZKTextField : NSView <NSCoding>
 @property (nonatomic, assign) id target;
 @property (nonatomic, assign) SEL action;
@@ -35,8 +40,8 @@
 @property (nonatomic, copy) NSAttributedString *attributedPlaceholderString;
 @property (nonatomic, copy) NSString *placeholderString;              // String to use as a placeholder in the absent of actual content
 
-@property (nonatomic, retain) NSDictionary *stringAttributes;
-@property (nonatomic, retain) NSDictionary *placeholderStringAttributes;
+@property (nonatomic, retain) NSMutableDictionary *stringAttributes;
+@property (nonatomic, retain) NSMutableDictionary *placeholderStringAttributes;
 @property (nonatomic, retain) NSDictionary *selectedStringAttributes;
 
 @property (nonatomic, retain) NSColor *backgroundColor;               // A background color to draw
@@ -49,6 +54,8 @@
 @property (nonatomic, assign, getter = isSelectable) BOOL selectable; // Denotes if the field is selectable
 @property (nonatomic, assign, getter = isSecure) BOOL secure;         // Draw bullets instead of text
 @property (nonatomic, assign, getter = isContinuous) BOOL continuous; // Action is sent every time text changes
+@property (nonatomic) ZKTextFieldStyle style;
+@property (nonatomic) CGFloat borderWidth;
 
 // Initiates Editing of the Text Field
 - (void)beginEditing;
@@ -74,30 +81,30 @@
 
 // A cursor to use on hover or the text rect.
 // Default implementation uses IBeam. Return nil or [NSCursor arrowCursor] for normal.
-- (NSCursor *)hoverCursor;
+@property(nonatomic, readonly) NSCursor * hoverCursor;
 
 // Generate an offset for text
 // Default implementation gets a vertically centered point with 4px padding
 - (NSPoint)textOffsetForHeight:(CGFloat)textHeight;
-- (CGFloat)textWidth;
+@property(nonatomic, readonly) CGFloat textWidth;
 
 // Generate a path to clip all drawing with.
 // Default implementation returns the bounds of the receiver with a 4pt corner radius
 // Does nothing if -shouldClipContent is NO
 // Return nil for none.
-- (NSBezierPath *)clippingPath;
+@property(nonatomic, readonly) NSBezierPath * clippingPath;
 
 // Color for the insertion point during editing or selection.
 // Default implementation does nothing.
-- (NSColor *)insertionPointColor;
+@property(nonatomic, readonly) NSColor * insertionPointColor;
 
 // Used by the drawing methods to get the clipping path without potentially creating a new instance of it
-- (NSBezierPath *)currentClippingPath;
+@property(nonatomic, readonly) NSBezierPath * currentClippingPath;
 
 // API for subclasses. Return 0 or below for no limit.
-- (CGFloat)minimumHeight;
-- (CGFloat)minimumWidth;
-- (CGFloat)maximumHeight;
-- (CGFloat)maximumWidth;
+@property(nonatomic, readonly) CGFloat minimumHeight;
+@property(nonatomic, readonly) CGFloat minimumWidth;
+@property(nonatomic, readonly) CGFloat maximumHeight;
+@property(nonatomic, readonly) CGFloat maximumWidth;
 
 @end
