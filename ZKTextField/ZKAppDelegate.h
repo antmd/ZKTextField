@@ -29,6 +29,7 @@
 	IBOutlet NSSecureTextField *f;
 }
 
-@property (assign) IBOutlet NSWindow *window;
+@property (weak) IBOutlet NSWindow *window;
+@property (copy) NSString* boundString;
 
 @end

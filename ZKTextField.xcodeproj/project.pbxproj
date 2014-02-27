@@ -260,6 +260,7 @@
 		FA225D4115360301004696D5 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_OBJC_ARC = YES;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "ZKTextField/ZKTextField-Prefix.pch";
 				INFOPLIST_FILE = "ZKTextField/ZKTextField-Info.plist";
@@ -271,6 +272,7 @@
 		FA225D4215360301004696D5 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_OBJC_ARC = YES;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "ZKTextField/ZKTextField-Prefix.pch";
 				INFOPLIST_FILE = "ZKTextField/ZKTextField-Info.plist";

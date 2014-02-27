@@ -31,20 +31,25 @@ typedef NS_ENUM(NSUInteger,ZKTextFieldStyle) {
 };
 
 @interface ZKTextField : NSView <NSCoding>
-@property (nonatomic, assign) id target;
+@property (nonatomic, unsafe_unretained) id target;
 @property (nonatomic, assign) SEL action;
+@property (nonatomic) NSTextAlignment alignment;
 
 @property (nonatomic, copy) NSAttributedString *attributedString;
 @property (nonatomic, copy) NSString *string; // Just gets the textAttributes and converts it to an attributed string
 
 @property (nonatomic, copy) NSAttributedString *attributedPlaceholderString;
 @property (nonatomic, copy) NSString *placeholderString;              // String to use as a placeholder in the absent of actual content
+@property (nonatomic) BOOL transparentWhenEmpty;
 
-@property (nonatomic, retain) NSMutableDictionary *stringAttributes;
-@property (nonatomic, retain) NSMutableDictionary *placeholderStringAttributes;
-@property (nonatomic, retain) NSDictionary *selectedStringAttributes;
+@property (nonatomic, strong) NSMutableDictionary *stringAttributes;
+@property (nonatomic, strong) NSMutableDictionary *placeholderStringAttributes;
+@property (nonatomic, strong) NSDictionary *selectedStringAttributes;
 
-@property (nonatomic, retain) NSColor *backgroundColor;               // A background color to draw
+@property (nonatomic, strong) NSColor *notEditingBackgroundColor;               // A background color to draw
+@property (nonatomic, strong) NSColor *editingBackgroundColor;               // A background color to draw
+@property (nonatomic, strong) NSDictionary *notEditingStringAttributes;               // A background color to draw
+@property (nonatomic, strong) NSDictionary *editingStringAttributes;               // A background color to draw
 @property (nonatomic, assign) BOOL drawsBackground;                   // Flag indicating if -drawBackgroundWithRect: is called
 @property (nonatomic, assign) BOOL drawsBorder;                       // Flag indicating if -drawFrameWithRect: is called
 @property (nonatomic, assign) BOOL hasHoverCursor;                    // Denotes if there is an extra cursor when hovering over the text rectangle
@@ -65,7 +70,7 @@ typedef NS_ENUM(NSUInteger,ZKTextFieldStyle) {
 
 // Draw a background color. Only called if -drawsBackground is set to YES.
 // Default implementation draws the -backgroundColor attribute.
-- (void)drawBackgroundWithRect:(NSRect)rect;
+- (void)drawBackgroundWithRect:(NSRect)rect selected:(BOOL)selected;
 
 // Draw a frame. Only called if -drawsBorder is set to YES.
 // Default implementation draws a draw line around the field;
@@ -81,7 +86,7 @@ typedef NS_ENUM(NSUInteger,ZKTextFieldStyle) {
 
 // A cursor to use on hover or the text rect.
 // Default implementation uses IBeam. Return nil or [NSCursor arrowCursor] for normal.
-@property(nonatomic, readonly) NSCursor * hoverCursor;
+@property(weak, nonatomic, readonly) NSCursor * hoverCursor;
 
 // Generate an offset for text
 // Default implementation gets a vertically centered point with 4px padding
@@ -92,14 +97,14 @@ typedef NS_ENUM(NSUInteger,ZKTextFieldStyle) {
 // Default implementation returns the bounds of the receiver with a 4pt corner radius
 // Does nothing if -shouldClipContent is NO
 // Return nil for none.
-@property(nonatomic, readonly) NSBezierPath * clippingPath;
+@property(weak, nonatomic, readonly) NSBezierPath * clippingPath;
 
 // Color for the insertion point during editing or selection.
 // Default implementation does nothing.
-@property(nonatomic, readonly) NSColor * insertionPointColor;
+@property(weak, nonatomic, readonly) NSColor * insertionPointColor;
 
 // Used by the drawing methods to get the clipping path without potentially creating a new instance of it
-@property(nonatomic, readonly) NSBezierPath * currentClippingPath;
+@property(weak, nonatomic, readonly) NSBezierPath * currentClippingPath;
 
 // API for subclasses. Return 0 or below for no limit.
 @property(nonatomic, readonly) CGFloat minimumHeight;

@@ -28,6 +28,57 @@
 
 #pragma mark - ZKSecureGlyphGenerator
 
+@interface NSObject(TDBindings)
+-(void) propagateValue:(id)value forBinding:(NSString*)binding;
+@end
+@implementation NSObject(TDBindings)
+
+-(void) propagateValue:(id)value forBinding:(NSString*)binding;
+{
+	NSParameterAssert(binding != nil);
+    
+	//WARNING: bindingInfo contains NSNull, so it must be accounted for
+	NSDictionary* bindingInfo = [self infoForBinding:binding];
+	if(!bindingInfo)
+		return; //there is no binding
+    
+	//apply the value transformer, if one has been set
+	NSDictionary* bindingOptions = [bindingInfo objectForKey:NSOptionsKey];
+	if(bindingOptions){
+		NSValueTransformer* transformer = [bindingOptions valueForKey:NSValueTransformerBindingOption];
+		if(!transformer || (id)transformer == [NSNull null]){
+			NSString* transformerName = [bindingOptions valueForKey:NSValueTransformerNameBindingOption];
+			if(transformerName && (id)transformerName != [NSNull null]){
+				transformer = [NSValueTransformer valueTransformerForName:transformerName];
+			}
+		}
+        
+		if(transformer && (id)transformer != [NSNull null]){
+			if([[transformer class] allowsReverseTransformation]){
+				value = [transformer reverseTransformedValue:value];
+			} else {
+				NSLog(@"WARNING: binding \"%@\" has value transformer, but it doesn't allow reverse transformations in %s", binding, __PRETTY_FUNCTION__);
+			}
+		}
+	}
+    
+	id boundObject = [bindingInfo objectForKey:NSObservedObjectKey];
+	if(!boundObject || boundObject == [NSNull null]){
+		NSLog(@"ERROR: NSObservedObjectKey was nil for binding \"%@\" in %s", binding, __PRETTY_FUNCTION__);
+		return;
+	}
+    
+	NSString* boundKeyPath = [bindingInfo objectForKey:NSObservedKeyPathKey];
+	if(!boundKeyPath || (id)boundKeyPath == [NSNull null]){
+		NSLog(@"ERROR: NSObservedKeyPathKey was nil for binding \"%@\" in %s", binding, __PRETTY_FUNCTION__);
+		return;
+	}
+    
+	[boundObject setValue:value forKeyPath:boundKeyPath];
+}
+
+@end
+
 @interface ZKSecureGlyphGenerator : NSGlyphGenerator
 @end
 
@@ -50,13 +101,14 @@
 
 #pragma mark - Private Class Extension
 
+
 @interface ZKTextField () <NSTextViewDelegate, NSTextDelegate>
-@property (nonatomic, retain) NSBezierPath *_currentClippingPath;
-@property (nonatomic, retain) NSTextView   *_currentFieldEditor;
-@property (nonatomic, retain) NSClipView   *_currentClipView;
+@property (nonatomic, strong) NSBezierPath *_currentClippingPath;
+@property (nonatomic, strong) NSTextView   *_currentFieldEditor;
+@property (nonatomic, strong) NSClipView   *_currentClipView;
 @property (nonatomic, assign) CGFloat       _offset;
 @property (nonatomic, assign) CGFloat       _lineHeight;
-@property (nonatomic, retain) NSAttributedString *_bullets;
+@property (nonatomic, strong) NSAttributedString *_bullets;
 
 - (void)_configureFieldEditor;
 - (void)_instantiate;
@@ -64,12 +116,23 @@
 
 static NSFont* DefaultFont = nil;
 static const CGFloat MinimumFontSize = 6.0;
-static const CGFloat MaximumFontSize = 24.0;
+static const CGFloat MaximumFontSize = 48.0;
 
+/*
+ *
+ *
+ *================================================================================================*/
+#pragma mark - Main Implementation
+/*==================================================================================================
+ */
 #pragma mark - ZKTextField
 #pragma mark -
 
-@implementation ZKTextField
+@implementation ZKTextField {
+    BOOL _isAttributedString ; // Whether an attributed string has been set by the user
+    NSMutableAttributedString* _notEditingAttributedString;
+    NSMutableDictionary* _notEditingTotalStringAttributes;
+}
 
 #pragma mark - Private Properties
 
@@ -86,7 +149,7 @@ static const CGFloat MaximumFontSize = 24.0;
 @dynamic placeholderString;
 @synthesize attributedString            = _attributedString;
 @synthesize attributedPlaceholderString = _attributedPlaceholderString;
-@synthesize backgroundColor             = _backgroundColor;
+@synthesize notEditingBackgroundColor             = _notEditingBackgroundColor;
 @synthesize drawsBackground             = _drawsBackground;
 @synthesize drawsBorder                 = _drawsBorder;
 @synthesize hasHoverCursor              = _hasHoverCursor;
@@ -132,7 +195,10 @@ static const CGFloat MaximumFontSize = 24.0;
 {
 	if ((self = [super initWithCoder:dec])) {
 		self.attributedString            = [dec decodeObjectForKey:@"zkattributedstring"];
-		self.backgroundColor             = [dec decodeObjectForKey:@"zkbackgroundcolor"];
+		self.notEditingBackgroundColor             = [dec decodeObjectForKey:@"zkDeselectedBackgroundcolor"];
+		self.editingBackgroundColor             = [dec decodeObjectForKey:@"zkSelectedBackgroundcolor"];
+		self.notEditingStringAttributes             = [dec decodeObjectForKey:@"zkDeselectedForegroundcolor"];
+		self.editingStringAttributes             = [dec decodeObjectForKey:@"zkSelectedForegroundcolor"];
 		self.secure                      = [dec decodeBoolForKey:@"zksecure"];
 		self.editable                    = [dec decodeBoolForKey:@"zkeditable"];
 		self.selectable                  = [dec decodeBoolForKey:@"zkselectable"];
@@ -158,21 +224,16 @@ static const CGFloat MaximumFontSize = 24.0;
 	[self endEditing];
 	[self discardCursorRects];
 
-	self._bullets                    = nil;
-	self._currentClippingPath        = nil;
-	self.attributedString            = nil;
 	self.attributedPlaceholderString = nil;
-	self.backgroundColor             = nil;
-	self.stringAttributes            = nil;
-	self.placeholderStringAttributes = nil;
-	self.selectedStringAttributes    = nil;
-	[super dealloc];
 }
 
 - (void)_instantiate
 {
 	self.hasHoverCursor    = YES;
-	self.backgroundColor   = [NSColor whiteColor];
+	self.notEditingBackgroundColor   = [NSColor lightGrayColor];
+	self.editingBackgroundColor   = [NSColor whiteColor];
+    self.editingStringAttributes = @{};
+    self.notEditingStringAttributes = @{NSForegroundColorAttributeName:NSColor.whiteColor};
 	self.drawsBackground   = YES;
 	self.drawsBorder       = YES;
 	self.secure            = NO;
@@ -181,7 +242,8 @@ static const CGFloat MaximumFontSize = 24.0;
 	self.placeholderString = nil;
 	self.editable          = YES;
 	self.selectable        = YES;
-	NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle defaultParagraphStyle] mutableCopy] autorelease];
+    self.alignment = NSLeftTextAlignment;
+	NSMutableParagraphStyle *style = [[NSMutableParagraphStyle defaultParagraphStyle] mutableCopy];
 	style.lineBreakMode = NSLineBreakByTruncatingTail;
 	self.stringAttributes = [NSMutableDictionary dictionaryWithObjectsAndKeys:
 							 [NSColor controlTextColor], NSForegroundColorAttributeName,
@@ -201,7 +263,10 @@ static const CGFloat MaximumFontSize = 24.0;
 {
 	[coder encodeObject:self.attributedPlaceholderString forKey:@"zkattributedplaceholderstring"];
 	[coder encodeObject:self.attributedString forKey:@"zkattributedstring"];
-	[coder encodeObject:self.backgroundColor forKey:@"zkbackgroundcolor"];
+	[coder encodeObject:self.notEditingBackgroundColor forKey:@"zkDeselectedBackgroundcolor"];
+	[coder encodeObject:self.editingBackgroundColor forKey:@"zkSelectedBackgroundcolor"];
+	[coder encodeObject:self.notEditingStringAttributes forKey:@"zkDeselectedForegroundcolor"];
+	[coder encodeObject:self.editingStringAttributes forKey:@"zkSelectedForegroundcolor"];
 	[coder encodeBool:self.isSecure forKey:@"zksecure"];
 	[coder encodeBool:self.isEditable forKey:@"zkeditable"];
 	[coder encodeBool:self.isSelectable forKey:@"zkselectable"];
@@ -259,8 +324,9 @@ static const CGFloat MaximumFontSize = 24.0;
 	}
 
 	// Draw background
-	if (self.drawsBackground)
-		[self drawBackgroundWithRect:dirtyRect];
+	if (self.drawsBackground && (self.string.length>0 || !self.transparentWhenEmpty)) {
+		[self drawBackgroundWithRect:dirtyRect selected:(self._currentFieldEditor!=nil)];
+    }
 
 	// Draw frame
 	if (self.drawsBorder)
@@ -271,7 +337,9 @@ static const CGFloat MaximumFontSize = 24.0;
 
 	// If we don't have an active edit session, draw the text ourselves.
 	if (!self._currentFieldEditor) {
-		NSAttributedString *currentString = (self.attributedString.length > 0) ? self.attributedString : self.attributedPlaceholderString;
+		NSAttributedString *currentString = (self.attributedString.length > 0) ?
+        _notEditingAttributedString :
+        self.attributedPlaceholderString;
 
 		if (self.isSecure && self.attributedString.length > 0)
 			currentString = self._bullets;
@@ -299,9 +367,9 @@ static const CGFloat MaximumFontSize = 24.0;
 	[NSGraphicsContext restoreGraphicsState];
 }
 
-- (void)drawBackgroundWithRect:(NSRect)rect
+- (void)drawBackgroundWithRect:(NSRect)rect selected:(BOOL)selected
 {
-	[self.backgroundColor set];
+	[(selected?self.editingBackgroundColor:self.notEditingBackgroundColor) set];
 	NSRectFillUsingOperation(rect, NSCompositeSourceOver);
 }
 
@@ -344,7 +412,34 @@ static const CGFloat MaximumFontSize = 24.0;
 
 - (void)setString:(NSString *)string
 {
-	[self setAttributedString:[[[NSAttributedString alloc] initWithString:string attributes:self.stringAttributes] autorelease]];
+    _isAttributedString = NO;
+    if (string!=nil) {
+        [self _setAttributedString:[[NSAttributedString alloc] initWithString:string attributes:self.stringAttributes]];
+    }
+    else {
+        [ self _setAttributedString:nil ];
+    }
+}
+
+-(void)setAlignment:(NSTextAlignment)alignment
+{
+    [self.stringAttributes[NSParagraphStyleAttributeName] setAlignment:alignment];
+    [ self _setAttributedString:self.attributedString ];
+}
+
+-(NSTextAlignment)alignment
+{
+    return [self.stringAttributes[NSParagraphStyleAttributeName] alignment];
+}
+
+-(void)setToolTip:(NSString *)string
+{
+    self.string = string;
+}
+
+-(NSString *)toolTip
+{
+    return self.string;
 }
 
 - (NSAttributedString *)attributedString
@@ -354,7 +449,7 @@ static const CGFloat MaximumFontSize = 24.0;
 
 -(CGFloat)_lineHeightAndOffset:(CGFloat*)offset
 {
-    NSAttributedString* heightStr = [[[NSAttributedString alloc] initWithString:@"ZGyyPh" attributes:self.stringAttributes] autorelease];
+    NSAttributedString* heightStr = [[NSAttributedString alloc] initWithString:@"ZGyyPh" attributes:self.stringAttributes];
 
 	CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)heightStr);
 	CGFloat ascent, descent, leading;
@@ -372,21 +467,25 @@ static const CGFloat MaximumFontSize = 24.0;
 	return size.height;
 }
 
-- (void)setAttributedString:(NSAttributedString *)inAttrStr
+- (void)_setAttributedString:(NSAttributedString *)inAttrStr
 {
 	[self willChangeValueForKey:@"string"];
 	[self willChangeValueForKey:@"attributedString"];
 
-	[self didChangeValueForKey:@"attributedString"];
-	[self didChangeValueForKey:@"string"];
 
-    
     NSMutableAttributedString* attributedString = [ inAttrStr mutableCopy ];
     [ self _adjustAttributedStringForBounds:attributedString ];
+    self.stringAttributes[NSFontAttributeName] =
+        [ self _adjustFontForBounds:self.stringAttributes[NSFontAttributeName]];
     
-	if (_attributedString)
-		[_attributedString release];
 	_attributedString = [attributedString copy];
+    _notEditingAttributedString = [ _attributedString mutableCopy ];
+    if (!_isAttributedString) {
+        for (NSString* key in _notEditingStringAttributes.allKeys) {
+            [ _notEditingAttributedString removeAttribute:key range:NSMakeRange(0, _notEditingAttributedString.length)];
+            [ _notEditingAttributedString addAttribute:key value:_notEditingStringAttributes[key] range:NSMakeRange(0, _notEditingAttributedString.length)];
+        }
+    }
 
     self._lineHeight = [ self _lineHeightAndOffset:&_offset ];
 
@@ -395,9 +494,18 @@ static const CGFloat MaximumFontSize = 24.0;
 										  withString:[NSString stringWithFormat:@"%C", 0x2022]  // 0x2022 is the code for a bullet
 									 startingAtIndex:0];
 
-	NSMutableAttributedString *mar = [self.attributedString.mutableCopy autorelease];
+	NSMutableAttributedString *mar = self.attributedString.mutableCopy;
 	[mar replaceCharactersInRange:NSMakeRange(0, mar.length) withString:bullets];
 	self._bullets = mar;
+    
+	[self didChangeValueForKey:@"attributedString"];
+	[self didChangeValueForKey:@"string"];
+}
+
+-(void)setAttributedString:(NSAttributedString *)attributedString
+{
+    _isAttributedString = YES;
+    [self _setAttributedString:attributedString];
 }
 
 - (NSString *)placeholderString
@@ -418,12 +526,19 @@ static const CGFloat MaximumFontSize = 24.0;
 {
 	[self willChangeValueForKey:@"placeholderString"];
     if (placeholderString) {
-        [self setAttributedPlaceholderString:[[[NSAttributedString alloc] initWithString:placeholderString attributes:self.placeholderStringAttributes] autorelease]];
+        [self setAttributedPlaceholderString:[[NSAttributedString alloc] initWithString:placeholderString attributes:self.placeholderStringAttributes]];
     }
     else {
         self.attributedPlaceholderString=nil;
     }
 	[self didChangeValueForKey:@"placeholderString"];
+}
+
+-(void)setStringAttributes:(NSMutableDictionary *)stringAttributes
+{
+    _stringAttributes = stringAttributes;
+    _notEditingTotalStringAttributes = [ stringAttributes mutableCopy ];
+    [_notEditingTotalStringAttributes addEntriesFromDictionary:self.notEditingStringAttributes];
 }
 
 - (NSBezierPath *)currentClippingPath
@@ -442,8 +557,11 @@ static const CGFloat MaximumFontSize = 24.0;
 - (void)endEditing
 {
 	if (self._currentFieldEditor) {		
-		self.attributedString = self._currentFieldEditor.attributedString;
+		[self _setAttributedString:self._currentFieldEditor.attributedString];
 
+        if (!self.isContinuous) {
+            [ self propagateValue:self.string forBinding:NSToolTipBinding];
+        }
 		[self.window endEditingFor:self];
 
 		[self._currentClipView removeFromSuperview];
@@ -501,11 +619,9 @@ static const CGFloat MaximumFontSize = 24.0;
 	NSTextView *fieldEditor = (NSTextView *)[self.window fieldEditor:YES
 														   forObject:self];
 
-	NSString *str = self.string;
-
-	fieldEditor.drawsBackground = NO;	
+	fieldEditor.drawsBackground = NO;
 	fieldEditor.fieldEditor = YES;
-	fieldEditor.string      = str ? str : @"";
+	fieldEditor.textStorage.attributedString = self.attributedString;
 
 	NSRect fieldFrame;
     CGFloat lineHeight = [ self _lineHeightAndOffset:nil ];
@@ -513,7 +629,6 @@ static const CGFloat MaximumFontSize = 24.0;
 	fieldFrame.origin      = fieldOrigin;
 	fieldFrame.size.height = lineHeight;
 	fieldFrame.size.width  = [self textWidth];
-    NSLog(@"FieldFrame = %@, lineHeight = %f",NSStringFromSize(fieldFrame.size),lineHeight);
 
 	NSSize layoutSize   = fieldEditor.maxSize;
 
@@ -554,18 +669,19 @@ static const CGFloat MaximumFontSize = 24.0;
 
 	self._currentFieldEditor = fieldEditor;
 
-	self._currentClipView = [[[NSClipView alloc] initWithFrame:fieldFrame] autorelease];
+	self._currentClipView = [[NSClipView alloc] initWithFrame:fieldFrame];
 	self._currentClipView.drawsBackground = NO;
 	self._currentClipView.documentView    = fieldEditor;
 
 	fieldEditor.selectedRange             = NSMakeRange(0, fieldEditor.string.length); // select the whole thing
 
 	if (self.isSecure)
-		fieldEditor.layoutManager.glyphGenerator = [[[ZKSecureGlyphGenerator alloc] init] autorelease]; // Fuck yeah
+		fieldEditor.layoutManager.glyphGenerator = [[ZKSecureGlyphGenerator alloc] init]; // Fuck yeah
 	else
 		fieldEditor.layoutManager.glyphGenerator = [NSGlyphGenerator sharedGlyphGenerator];
 	//	fieldEditor.layoutManager.typesetterBehavior = NSTypesetterBehavior_10_2_WithCompatibility;
 
+#
 	if (fieldEditor.string.length > 0)
 		self._offset = [fieldEditor.layoutManager.typesetter baselineOffsetInLayoutManager:fieldEditor.layoutManager glyphIndex:0];
 
@@ -594,12 +710,20 @@ static const CGFloat MaximumFontSize = 24.0;
 
 -(NSFont*)_adjustFontForBounds:(NSFont*)initialFont
 {
+    if (initialFont==nil) { return nil; }
+    CGFloat displayHeight = [ self _maximumTextHeight ];
+    NSString *cacheKey = [ NSString stringWithFormat:@"%f%@",displayHeight,initialFont.fontName];
+    static NSMutableDictionary *sCachedFonts = nil;
+    if (sCachedFonts == nil ){ sCachedFonts = [NSMutableDictionary new]; }
+    
+    NSFont* cachedFont = sCachedFonts[cacheKey];
+    if (cachedFont) { return cachedFont; }
+    
     
     NSMutableAttributedString *attrString
-    = [[[NSMutableAttributedString alloc] initWithString:@"Tojjery" attributes:@{NSFontAttributeName:(initialFont?:DefaultFont)}] autorelease];
+    = [[NSMutableAttributedString alloc] initWithString:@"Tojjery" attributes:@{NSFontAttributeName:(initialFont?:DefaultFont)}];
     
     NSRange fullRange = NSMakeRange(0,attrString.length);
-    CGFloat displayHeight = [ self _maximumTextHeight ];
 
     // Try and fingd a size that fits without iterating too many times.
     // We start going 50 pixels at a time, then 10, then 1
@@ -626,13 +750,14 @@ static const CGFloat MaximumFontSize = 24.0;
     } else if (size < MinimumFontSize) {
         size = MinimumFontSize;
     }
+    sCachedFonts[cacheKey] = font;
     return font;
 }
 #pragma mark - Layout
 
 -(CGFloat)_maximumTextHeight
 {
-    return self.bounds.size.height - 2.0 * self.borderWidth - MAX(2.0,self.bounds.size.height/4.0) ;
+    return self.bounds.size.height - MAX(1.0,self.bounds.size.height/5.0) ;
 }
 
 - (NSPoint)textOffsetForHeight:(CGFloat)textHeight;
@@ -693,14 +818,6 @@ static const CGFloat MaximumFontSize = 24.0;
 
 	[super setFrame:frame];
     
-    [ self willChangeValueForKey:@"attributedString"];
-    [ self willChangeValueForKey:@"attributedPlaceholderString"];
-    NSFont* newFont = [self _adjustFontForBounds:(self.stringAttributes[NSFontAttributeName]?:DefaultFont) ];
-    self.stringAttributes[NSFontAttributeName] = newFont;
-    self.placeholderStringAttributes[NSFontAttributeName] = newFont;
-    [ self didChangeValueForKey:@"attributedString"];
-    [ self didChangeValueForKey:@"attributedPlaceholderString"];
-
 	if (self._currentClipView) { // Built in autoresizing sucks so much.
 		[self._currentClipView setFrameSize:NSMakeSize(self.textWidth, self._currentClipView.frame.size.height)];
 	}
@@ -718,7 +835,7 @@ static const CGFloat MaximumFontSize = 24.0;
 
 - (CGFloat)maximumHeight
 {
-	return 24.0;
+	return 48.0;
 }
 
 - (CGFloat)maximumWidth
@@ -735,10 +852,15 @@ static const CGFloat MaximumFontSize = 24.0;
 
 - (void)textDidChange:(NSNotification *)pNotification
 {
-	if (self.isContinuous && self.target && [self.target respondsToSelector:self.action]) {
+	if (self.isContinuous) {
+        
 		self.string = self._currentFieldEditor.string;
+        
+        [ self propagateValue:self.string forBinding:NSToolTipBinding];
 
-		[self.target performSelectorOnMainThread:self.action withObject:self waitUntilDone:YES];
+        if (self.target && [self.target respondsToSelector:self.action]) {
+            [self.target performSelectorOnMainThread:self.action withObject:self waitUntilDone:YES];
+        }
 	}
 }
 

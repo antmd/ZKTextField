@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="5037.2" systemVersion="13C62" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="5037.2" systemVersion="13C64" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none">
     <dependencies>
         <deployment version="1070" defaultVersion="1070" identifier="macosx"/>
         <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="5037.2"/>
@@ -657,14 +657,22 @@
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
                     <customView id="536" customClass="ZKTextField">
-                        <rect key="frame" x="159" y="175" width="163" height="22"/>
+                        <rect key="frame" x="159" y="179" width="76" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                         <userDefinedRuntimeAttributes>
                             <userDefinedRuntimeAttribute type="number" keyPath="style">
                                 <integer key="value" value="1"/>
                             </userDefinedRuntimeAttribute>
                             <userDefinedRuntimeAttribute type="string" keyPath="placeholderString" value="Username"/>
+                            <userDefinedRuntimeAttribute type="boolean" keyPath="continuous" value="YES"/>
+                            <userDefinedRuntimeAttribute type="boolean" keyPath="transparentWhenEmpty" value="YES"/>
+                            <userDefinedRuntimeAttribute type="number" keyPath="alignment">
+                                <integer key="value" value="2"/>
+                            </userDefinedRuntimeAttribute>
                         </userDefinedRuntimeAttributes>
+                        <connections>
+                            <binding destination="494" name="toolTip" keyPath="self.boundString" id="62l-2h-j3V"/>
+                        </connections>
                     </customView>
                 </subviews>
             </view>
@@ -679,5 +687,6 @@
             </connections>
         </customObject>
         <customObject id="420" customClass="NSFontManager"/>
+        <userDefaultsController representsSharedInstance="YES" id="Hch-PV-MQe"/>
     </objects>
 </document>

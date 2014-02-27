@@ -25,18 +25,24 @@
 
 #import "ZKAppDelegate.h"
 
+
 @implementation ZKAppDelegate
 
 @synthesize window = _window;
 
-- (void)dealloc
-{
-    [super dealloc];
-}
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
-	
+    [ self addObserver:self forKeyPath:@"boundString" options:NSKeyValueObservingOptionNew context:nil];
+}
+
+-(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    NSLog(@"Change keypath = %@, object = %@, change = %@",keyPath,object,change);
+}
+-(void)awakeFromNib
+{
+    self.boundString = @"Hello there";
 }
 
 -(BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
